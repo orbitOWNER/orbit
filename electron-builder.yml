@@ -1,0 +1,57 @@
+appId: com.orbit.chat
+productName: Orbit
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - dist/main/server/**/*
+win:
+  target: nsis
+  icon: build/icon.ico
+  # built-in electron-builder protocol support is macOS-only;
+  # orbit:// links are registered for Windows by build/installer.nsh
+mac:
+  target: dmg
+  category: public.app-category.social-networking
+linux:
+  target: AppImage
+  category: Chat
+nsis:
+  # Assisted installer: anyone can run it, no admin needed for the default
+  # per-user install. Wizard pages: mode (just me / all users) -> folder ->
+  # license -> options (shortcuts, start with Windows) -> install -> finish.
+  oneClick: false
+  perMachine: false
+  selectPerMachineByDefault: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Orbit
+  uninstallDisplayName: Orbit
+  runAfterFinish: true
+  license: build/license.txt
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  include: build/installer.nsh
+  deleteAppDataOnUninstall: false
+  displayLanguageSelector: true
+  installerLanguages:
+    - en_US
+    - de_DE
+    - fr_FR
+    - es_ES
+    - it_IT
+    - nl_NL
+    - pt_BR
+    - ru_RU
+    - zh_CN
+    - ja_JP
+publish:
+  - provider: github
+    owner: orbitOWNER
+    repo: orbit
+    releaseType: release

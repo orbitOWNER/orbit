@@ -1,0 +1,13 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { App } from './App';
+import './styles/app.css';
+import 'highlight.js/styles/github-dark.css';
+
+const el = document.getElementById('root');
+if (!el) throw new Error('#root missing');
+createRoot(el).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
