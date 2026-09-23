@@ -2,6 +2,10 @@
 
 All notable changes to Orbit are documented here.
 
+## [0.3.10] — 2026-09-23 — Restart Fix
+### Fixed
+- “Restart now” in the *Updating Orbit* popup now correctly closes the popup — use the main window’s banner *Restart now* (which always worked) to restart. The popup was trying to call a blocked API.
+
 ## [0.3.9] — 2026-09-23 — Silent 1-min Updater + Per-Device Installs
 ### Changed
 - Updater now checks **every 1 minute** (was 30) and is **silent** on “Checking…” — only pops the “Updating Orbit” window when an update is actually found/downloading/ready.
