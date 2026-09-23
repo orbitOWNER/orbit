@@ -122,8 +122,24 @@ export function Spinner() {
 }
 
 export function UpdateBanner() {
-  const { status, info, progress, quitAndInstall } = useUpdates();
-  if (status === 'idle' || status === 'checking' || status === 'not-available' || status === 'error') return null;
+  const { status, info, progress, quitAndInstall, checkForUpdates } = useUpdates();
+  if (status === 'idle' || status === 'not-available') return null;
+  if (status === 'checking') {
+    return (
+      <div className="update-banner checking" role="status">
+        <span>Checking for updates…</span>
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div className="update-banner error" role="alert">
+        <span>Update check failed — will retry automatically.</span>
+        <button className="btn ghost sm" onClick={() => void checkForUpdates()}>Retry now</button>
+        <button className="btn ghost sm" onClick={() => useUpdates.getState().setStatus('idle')}>Dismiss</button>
+      </div>
+    );
+  }
   if (status === 'downloaded') {
     return (
       <div className="update-banner downloaded" role="alert">

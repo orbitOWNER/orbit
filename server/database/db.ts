@@ -82,6 +82,16 @@ export function runMigrations(): void {
     }
   } catch { /* ignore */ }
   try { getDb().exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client ON messages(clientId) WHERE clientId IS NOT NULL'); } catch { /* older sqlite */ }
+  d.exec(`CREATE TABLE IF NOT EXISTS installations (
+    userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    appVersion TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    arch TEXT NOT NULL,
+    lastSeen TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );`);
   persistSoon();
 }
 

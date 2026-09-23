@@ -11,7 +11,7 @@ interface UIState {
   activeServerId: string | null;
   activeChannelId: string | null;
   activeDMId: string | null;
-  homeTab: 'friends' | 'dms';
+  homeTab: 'friends' | 'dms' | 'installs';
   memberPanelOpen: boolean;
   modal: ModalKind;
   modalProps: Record<string, unknown>;

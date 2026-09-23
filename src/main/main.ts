@@ -47,8 +47,13 @@ async function getUpdater(): Promise<AppUpdater | null> {
     log.transports.file.level = 'info';
     updater.autoDownload = true; // download in background when available
     updater.autoInstallOnAppQuit = true;
-    // Escape hatch for self-hosted update feeds (also used by the update test):
-    // ORBIT_UPDATE_URL=http://host:port switches to a generic provider.
+    // Robust feed: primary is whatever app-update.yml says (old 0.3.4 → orbit-chat,
+    // new 0.3.5+ → orbitOWNER), fallback tries the other owner so a single
+    // missing repo never bricks updates. Also honors ORBIT_UPDATE_URL for
+    // local/self-hosted feeds.
+    const primaryOwner = (updater as unknown as { owner?: string }).owner as string | undefined;
+    // We don't know primary at this point (it's in app-update.yml), so we
+    // implement fallback in checkForUpdates wrapper below instead of here.
     if (process.env.ORBIT_UPDATE_URL) {
       updater.setFeedURL({ provider: 'generic', url: process.env.ORBIT_UPDATE_URL });
       mark(`update feed override: ${process.env.ORBIT_UPDATE_URL}`);
@@ -56,7 +61,19 @@ async function getUpdater(): Promise<AppUpdater | null> {
     updater.on('checking-for-update', () => { mark('update: checking'); sendUpdateStatus('checking'); });
     updater.on('update-available', (info) => { mark(`update: available v${info.version}`); sendUpdateStatus('available', { version: info.version }); });
     updater.on('update-not-available', (info) => { mark(`update: not available (latest v${info.version})`); sendUpdateStatus('not-available', { version: info.version }); });
-    updater.on('error', (err) => { mark(`update: error ${String((err as Error)?.message ?? err)}`); sendUpdateStatus('error', { message: (err as Error)?.message ?? 'Update error' }); });
+    updater.on('error', (err) => {
+      const msg = String((err as Error)?.message ?? err);
+      mark(`update: error ${msg.slice(0, 400)}`);
+      sendUpdateStatus('error', { message: msg });
+      // Fallback: if primary was orbit-chat (old installs) and we 404'd, try orbitOWNER
+      if (updater && msg.includes('orbit-chat') && msg.includes('404')) {
+        try {
+          mark('update: trying fallback feed orbitOWNER/orbit');
+          updater.setFeedURL({ provider: 'github', owner: 'orbitOWNER', repo: 'orbit' } as unknown as never);
+          void updater.checkForUpdates().catch(() => undefined);
+        } catch { /* fallback failed */ }
+      }
+    });
     updater.on('download-progress', (p) => sendUpdateStatus('downloading', { percent: Math.round(p.percent) }));
     updater.on('update-downloaded', (info) => { mark(`update: downloaded v${info.version}`); sendUpdateStatus('downloaded', { version: info.version }); });
     mark('electron-updater ready');
@@ -171,12 +188,28 @@ ipcMain.handle('orbit:openExternal', (_e, url: string) => {
 });
 
 // Auto-update IPC (lazy updater; degrades to an error payload if unavailable)
+// Includes fallback: if primary feed 404s on orbit-chat, retry orbitOWNER.
 ipcMain.handle('orbit:checkForUpdates', async () => {
   try {
     const u = await getUpdater();
     if (!u) return { error: 'Auto-update unavailable on this device' };
-    const result = await u.checkForUpdates();
-    return { updateInfo: result?.updateInfo };
+    try {
+      const result = await u.checkForUpdates();
+      return { updateInfo: result?.updateInfo };
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? err);
+      if (msg.includes('orbit-chat') && msg.includes('404')) {
+        mark('manual check: fallback to orbitOWNER/orbit');
+        try {
+          u.setFeedURL({ provider: 'github', owner: 'orbitOWNER', repo: 'orbit' } as unknown as never);
+          const result2 = await u.checkForUpdates();
+          return { updateInfo: result2?.updateInfo };
+        } catch (err2) {
+          return { error: err2 instanceof Error ? err2.message : 'Check failed' };
+        }
+      }
+      throw err;
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Check failed' };
   }
@@ -275,10 +308,13 @@ void app.whenReady().then(async () => {
   // Auto-start is exposed via settings (login item); default off.
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-  // Auto-update: initial check + periodic (lazy; failures only mark status)
+  // Auto-update: initial check + periodic + on focus (lazy; failures only mark status)
   if (!process.env.VITE_DEV_URL) {
-    void getUpdater().then((u) => u?.checkForUpdates().catch(() => undefined));
-    setInterval(() => { void getUpdater().then((u) => u?.checkForUpdates().catch(() => undefined)); }, 60 * 60 * 1000); // every hour
+    const doCheck = () => void getUpdater().then((u) => u?.checkForUpdates().catch(() => undefined));
+    doCheck();
+    setInterval(doCheck, 30 * 60 * 1000); // every 30 min (was 60)
+    // Also check when window gains focus (user returns to app)
+    win?.on('focus', doCheck);
   }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

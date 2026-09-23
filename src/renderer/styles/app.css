@@ -319,6 +319,8 @@ kbd { background: var(--bg-0); border: 1px solid var(--line); border-radius: 6px
 
 /* auto-update banner */
 .update-banner { position: fixed; top: 0; left: 72px; right: 0; padding: 8px 16px; display: flex; gap: 10px; align-items: center; justify-content: center; z-index: 60; font-size: 13px; background: var(--bg-3); border-bottom: 1px solid var(--line); }
+.update-banner.checking { background: color-mix(in srgb, var(--accent) 10%, var(--bg-2)); border-bottom-color: var(--line); }
+.update-banner.error { background: color-mix(in srgb, var(--danger) 14%, var(--bg-2)); border-bottom-color: var(--danger); }
 .update-banner.downloaded { background: color-mix(in srgb, var(--success) 18%, var(--bg-2)); border-bottom-color: var(--success); }
 .update-banner.available { background: color-mix(in srgb, var(--accent) 16%, var(--bg-2)); border-bottom-color: var(--accent); }
 .update-banner.downloading { flex-wrap: wrap; }

@@ -71,4 +71,14 @@ CREATE TABLE IF NOT EXISTS channel_read_state (
   updatedAt TEXT NOT NULL,
   PRIMARY KEY (userId, channelId)
 );
+CREATE TABLE IF NOT EXISTS installations (
+  userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  username TEXT NOT NULL,
+  displayName TEXT NOT NULL,
+  appVersion TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  arch TEXT NOT NULL,
+  lastSeen TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
 `;

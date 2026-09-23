@@ -110,6 +110,8 @@ export const api = {
   voiceJoin: (channelId: string) => req<{ ok: boolean }>('/api/voice/join', { method: 'POST', body: JSON.stringify({ channelId }) }),
   voiceLeave: () => req<{ ok: boolean }>('/api/voice/leave', { method: 'POST', body: '{}' }),
   voiceState: (b: object) => req<{ ok: boolean }>('/api/voice/state', { method: 'POST', body: JSON.stringify(b) }),
+  reportInstall: (b: { appVersion: string; platform: string; arch: string }) => req<{ ok: boolean }>('/api/installs/report', { method: 'POST', body: JSON.stringify(b) }),
+  getInstalls: () => req<{ installs: InstallShape[] }>('/api/installs'),
 };
 
 export interface UserShape { id: string; username: string; displayName: string; avatar: string | null; status: string; customStatus: string | null; bio: string | null; createdAt: string; }
@@ -126,6 +128,7 @@ export interface InviteShape { id: string; serverId: string; code: string; creat
 export interface DMShape { id: string; name: string; memberIds: string | string[]; isGroup: number | boolean; createdAt: string; }
 export interface AuditShape { id: string; serverId: string; actorId: string; action: string; targetId: string | null; detail: string | null; createdAt: string; }
 export interface VoiceStateShape { userId: string; channelId: string | null; serverId: string | null; muted: boolean; deafened: boolean; speaking: boolean; video: boolean; sharing: boolean; }
+export interface InstallShape { userId: string; username: string; displayName: string; appVersion: string; platform: string; arch: string; lastSeen: string; createdAt: string; }
 export interface ReadStateShape { channelId: string; lastReadMessageId: string | null; unread: number; mentions: number; updatedAt: string; }
 export interface Bootstrap {
   users: UserShape[]; servers: ServerShape[]; channels: ChannelShape[];

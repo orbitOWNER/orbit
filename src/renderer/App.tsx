@@ -185,6 +185,15 @@ export function App() {
   useEffect(() => {
     if (user && !dataReady) bootstrap().catch(() => undefined);
   }, [user, dataReady, bootstrap]);
+  // Report this device's install so the owner can see it (owner-only tab).
+  // Fires on every launch and when the user changes — cheap upsert, no PII beyond username.
+  useEffect(() => {
+    if (!user) return;
+    const plat = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? 'unknown';
+    desktop.getAppVersion().then((v) =>
+      api.reportInstall({ appVersion: v, platform: String(plat).slice(0, 32), arch: String(navigator.userAgent.includes('WOW64') ? 'x64' : 'x64').slice(0, 16) }).catch(() => undefined),
+    ).catch(() => undefined);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { applySettingsToDom(settings); }, [settings]);
   useRealtime();
   useGlobalKeys();

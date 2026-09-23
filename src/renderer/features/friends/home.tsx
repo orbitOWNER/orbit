@@ -8,23 +8,63 @@ import { useUI } from '../../stores/useUI';
 import { Composer, MessageList } from '../../components/chat';
 import { Avatar, EmptyState } from '../../components/ui';
 
-// ---------- Home: friends + DMs ----------
+// ---------- Home: friends + DMs + owner installs ----------
 export function Home() {
   const tab = useUI((s) => s.homeTab);
   const set = useUI((s) => s.set);
   const activeDMId = useUI((s) => s.activeDMId);
+  const me = useAuth((s) => s.user);
+  const isOwner = me?.username === 'sansOWNER';
   return (
     <div className="home">
       <aside className="home-side">
         <div className="home-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'friends'} className={cx(tab === 'friends' && 'sel')} onClick={() => set({ homeTab: 'friends' })}>Friends</button>
           <button role="tab" aria-selected={tab === 'dms'} className={cx(tab === 'dms' && 'sel')} onClick={() => set({ homeTab: 'dms' })}>Messages</button>
+          {isOwner && <button role="tab" aria-selected={tab === 'installs'} className={cx(tab === 'installs' && 'sel')} onClick={() => set({ homeTab: 'installs' })} title="Owner only">Installs 👑</button>}
         </div>
-        {tab === 'friends' ? <FriendsPane /> : <DMListPane />}
+        {tab === 'friends' ? <FriendsPane /> : tab === 'installs' ? <InstallsPane /> : <DMListPane />}
       </aside>
       <section className="home-main">
-        {tab === 'friends' ? <FriendsMain /> : activeDMId ? <DMChat dmId={activeDMId} /> : <EmptyState icon="✉" title="Pick a conversation" hint="Start a DM from a profile or the + button." />}
+        {tab === 'friends' ? <FriendsMain /> : tab === 'installs' ? <InstallsMain /> : activeDMId ? <DMChat dmId={activeDMId} /> : <EmptyState icon="✉" title="Pick a conversation" hint="Start a DM from a profile or the + button." />}
       </section>
+    </div>
+  );
+}
+
+function InstallsPane() {
+  return (
+    <div className="friend-side">
+      <h4>OWNER — INSTALLS</h4>
+      <p className="muted small">Only you can see this. Every device that has ever logged in appears here.</p>
+    </div>
+  );
+}
+
+function InstallsMain() {
+  const [rows, setRows] = useState<null | { userId: string; username: string; displayName: string; appVersion: string; platform: string; arch: string; lastSeen: string }[]>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const refresh = () => {
+    setErr(null);
+    api.getInstalls().then((r) => setRows(r.installs)).catch((e: Error) => setErr(e.message));
+  };
+  useEffect(() => { refresh(); }, []);
+  if (err) return <div className="friends-main"><div className="form-error" role="alert">{err}</div><button className="btn sm" onClick={refresh}>Retry</button></div>;
+  if (!rows) return <div className="friends-main"><p className="muted">Loading installs…</p></div>;
+  return (
+    <div className="friends-main">
+      <h2>Installs 👑 <small className="muted">owner only</small></h2>
+      <p className="muted small">Every PC that has reported — updates when someone opens Orbit. You have 2 accounts; other users never see this tab.</p>
+      {rows.length === 0 && <p className="muted">No installs yet — open the app on another PC and it will appear.</p>}
+      {rows.map((r) => (
+        <div key={r.userId} className="friend-row">
+          <Avatar name={r.displayName} size={36} />
+          <div><b>{r.displayName}</b> <span className="muted">@{r.username} • v{r.appVersion} • {r.platform} {r.arch}</span><br /><small className="muted">last seen {new Date(r.lastSeen).toLocaleString()}</small></div>
+          <span className="spacer" />
+          <span className="muted small">{r.username === 'sansOWNER' || r.username === 'sansOWNER2' ? 'you' : ''}</span>
+        </div>
+      ))}
+      <button className="btn ghost sm" onClick={refresh}>Refresh</button>
     </div>
   );
 }

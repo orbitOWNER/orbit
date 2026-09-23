@@ -708,6 +708,33 @@ export function mountApi(app: Express) {
     res.json({ messages, users, channels });
   });
 
+  // ---- installations (owner-only) ----
+  function isOwner(userId: string): boolean {
+    const row = get<{ username: string }>('SELECT username FROM users WHERE id = ?', [userId]);
+    return row?.username === 'sansOWNER';
+  }
+  app.post('/api/installs/report', authMiddleware, (req: Authed, res) => {
+    const { appVersion, platform, arch } = (req.body ?? {}) as { appVersion?: string; platform?: string; arch?: string };
+    const user = get<{ username: string; displayName: string }>('SELECT username, displayName FROM users WHERE id = ?', [req.userId!]);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+    const now = iso();
+    const ver = String(appVersion ?? 'unknown').slice(0, 32);
+    const plat = String(platform ?? 'unknown').slice(0, 32);
+    const arc = String(arch ?? 'unknown').slice(0, 32);
+    const existing = get<{ createdAt: string }>('SELECT createdAt FROM installations WHERE userId = ?', [req.userId!]);
+    if (existing) {
+      run('UPDATE installations SET username = ?, displayName = ?, appVersion = ?, platform = ?, arch = ?, lastSeen = ? WHERE userId = ?', [user.username, user.displayName, ver, plat, arc, now, req.userId!]);
+    } else {
+      run('INSERT INTO installations (userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt) VALUES (?,?,?,?,?,?,?,?)', [req.userId!, user.username, user.displayName, ver, plat, arc, now, now]);
+    }
+    res.json({ ok: true });
+  });
+  app.get('/api/installs', authMiddleware, (req: Authed, res) => {
+    if (!isOwner(req.userId!)) { res.status(403).json({ error: 'Owner only' }); return; }
+    const rows = all('SELECT userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt FROM installations ORDER BY lastSeen DESC');
+    res.json({ installs: rows });
+  });
+
   // ---- read states / typing / presence / voice ----
   app.post('/api/channels/:id/typing', authMiddleware, (req: Authed, res) => {
     broadcast('TYPING_START', { channelId: req.params.id, userId: req.userId });
