@@ -19,8 +19,49 @@ mark('main module loaded');
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let updateWin: BrowserWindow | null = null;
 let backendStarted = false;
 let quitting = false;
+
+function ensureUpdateWindow(): BrowserWindow {
+  if (updateWin && !updateWin.isDestroyed()) return updateWin;
+  updateWin = new BrowserWindow({
+    width: 360,
+    height: 140,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    show: false,
+    frame: false,
+    transparent: false,
+    alwaysOnTop: true,
+    backgroundColor: '#14161c',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  updateWin.on('closed', () => { updateWin = null; });
+  return updateWin;
+}
+function showUpdating(status: string, data?: Record<string, unknown>): void {
+  const w = ensureUpdateWindow();
+  const ver = data?.version ? ` v${data.version}` : '';
+  const pct = data?.percent != null ? ` — ${data.percent}%` : '';
+  const title =
+    status === 'checking' ? `Checking for updates…` :
+    status === 'available' ? `Update${ver} available — downloading…` :
+    status === 'downloading' ? `Downloading${ver}…${pct}` :
+    status === 'downloaded' ? `Update${ver} ready — restarting…` :
+    status === 'error' ? `Update check failed` : `Updating Orbit${ver}`;
+  const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#14161c;color:#e8eaf0;font:14px/1.4 'Segoe UI',system-ui;display:grid;place-items:center} .card{background:#1a1d25;border:1px solid #2b3140;border-radius:12px;padding:16px 18px;width:320px;text-align:center} .t{font-weight:700;color:#6c8cff} .p{height:6px;background:#262b37;border-radius:6px;overflow:hidden;margin-top:10px} .f{height:100%;background:#6c8cff;width:${Math.max(0, Math.min(100, Number(data?.percent ?? (status==='downloaded'?100: status==='available'?10:0))))}%;transition:width .3s} button{margin-top:10px;background:#6c8cff;border:none;color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer}</style><div class="card"><div class="t">Updating Orbit</div><div>${title}</div><div class="p"><div class="f"></div></div>${status==='downloaded'?'<button onclick="require(`electron`).ipcRenderer.invoke(`orbit:quitAndInstall`)">Restart now</button>':''}</div>`;
+  void w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  if (!w.isVisible()) w.show();
+  if (status === 'downloaded') {
+    // Also nudge the main window's banner via the existing channel
+    setTimeout(() => { if (updateWin && !updateWin.isDestroyed()) updateWin.show(); }, 100);
+  }
+}
+function hideUpdatingSoon(): void {
+  setTimeout(() => { try { updateWin?.close(); } catch { /* ignore */ } }, 2500);
+}
 
 // Auto-updater loads lazily (never blocks startup): the electron-updater
 // module import has been observed to stall the main process in some
@@ -58,13 +99,15 @@ async function getUpdater(): Promise<AppUpdater | null> {
       updater.setFeedURL({ provider: 'generic', url: process.env.ORBIT_UPDATE_URL });
       mark(`update feed override: ${process.env.ORBIT_UPDATE_URL}`);
     }
-    updater.on('checking-for-update', () => { mark('update: checking'); sendUpdateStatus('checking'); });
-    updater.on('update-available', (info) => { mark(`update: available v${info.version}`); sendUpdateStatus('available', { version: info.version }); });
-    updater.on('update-not-available', (info) => { mark(`update: not available (latest v${info.version})`); sendUpdateStatus('not-available', { version: info.version }); });
+    updater.on('checking-for-update', () => { mark('update: checking'); sendUpdateStatus('checking'); showUpdating('checking'); });
+    updater.on('update-available', (info) => { mark(`update: available v${info.version}`); sendUpdateStatus('available', { version: info.version }); showUpdating('available', { version: info.version }); });
+    updater.on('update-not-available', (info) => { mark(`update: not available (latest v${info.version})`); sendUpdateStatus('not-available', { version: info.version }); hideUpdatingSoon(); });
     updater.on('error', (err) => {
       const msg = String((err as Error)?.message ?? err);
       mark(`update: error ${msg.slice(0, 400)}`);
       sendUpdateStatus('error', { message: msg });
+      showUpdating('error', { version: '' });
+      setTimeout(hideUpdatingSoon, 3000);
       // Fallback: if primary was orbit-chat (old installs) and we 404'd, try orbitOWNER
       if (updater && msg.includes('orbit-chat') && msg.includes('404')) {
         try {
@@ -74,8 +117,8 @@ async function getUpdater(): Promise<AppUpdater | null> {
         } catch { /* fallback failed */ }
       }
     });
-    updater.on('download-progress', (p) => sendUpdateStatus('downloading', { percent: Math.round(p.percent) }));
-    updater.on('update-downloaded', (info) => { mark(`update: downloaded v${info.version}`); sendUpdateStatus('downloaded', { version: info.version }); });
+    updater.on('download-progress', (p) => { sendUpdateStatus('downloading', { percent: Math.round(p.percent) }); showUpdating('downloading', { percent: Math.round(p.percent) }); });
+    updater.on('update-downloaded', (info) => { mark(`update: downloaded v${info.version}`); sendUpdateStatus('downloaded', { version: info.version }); showUpdating('downloaded', { version: info.version }); });
     mark('electron-updater ready');
     return updater;
   } catch (err) {
@@ -307,6 +350,25 @@ void app.whenReady().then(async () => {
   } catch { /* unsupported */ }
   // Auto-start is exposed via settings (login item); default off.
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+  // Show changelog on first launch after update
+  try {
+    const verFile = path.join(app.getPath('userData'), 'orbit-version.json');
+    const cur = app.getVersion();
+    let last = '';
+    try { last = JSON.parse(fs.readFileSync(verFile, 'utf8')).version ?? ''; } catch { /* first run */ }
+    if (last && last !== cur) {
+      const changelogPath = path.join(__dirname, '..', '..', '..', 'CHANGELOG.md');
+      let notes = '';
+      try { notes = fs.readFileSync(changelogPath, 'utf8').slice(0, 4000); } catch { notes = `Updated to v${cur}`; }
+      const w = new BrowserWindow({ width: 520, height: 420, show: false, backgroundColor: '#14161c', webPreferences: { contextIsolation: true, sandbox: true } });
+      const html = `<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#14161c;color:#e8eaf0;font:13px/1.5 'Segoe UI',system-ui;padding:18px} h2{color:#6c8cff;margin:0 0 8px} pre{white-space:pre-wrap;background:#1a1d25;border:1px solid #2b3140;border-radius:8px;padding:10px;max-height:300px;overflow:auto} button{background:#6c8cff;color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;margin-top:10px}</style><h2>What's new in Orbit v${cur}</h2><pre>${notes.replace(/</g,'&lt;')}</pre><button onclick="window.close()">Got it</button>`;
+      void w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      w.once('ready-to-show', () => w.show());
+    }
+    fs.mkdirSync(path.dirname(verFile), { recursive: true });
+    fs.writeFileSync(verFile, JSON.stringify({ version: cur }));
+  } catch { /* ignore */ }
 
   // Auto-update: initial check + periodic + on focus (lazy; failures only mark status)
   if (!process.env.VITE_DEV_URL) {
