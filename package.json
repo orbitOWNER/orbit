@@ -1,6 +1,6 @@
 {
   "name": "orbit",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Orbit — original community chat desktop app (Electron + React + TypeScript + Vite, SQLite local)",
   "private": true,
   "type": "module",

@@ -99,9 +99,9 @@ async function getUpdater(): Promise<AppUpdater | null> {
       updater.setFeedURL({ provider: 'generic', url: process.env.ORBIT_UPDATE_URL });
       mark(`update feed override: ${process.env.ORBIT_UPDATE_URL}`);
     }
-    updater.on('checking-for-update', () => { mark('update: checking'); sendUpdateStatus('checking'); showUpdating('checking'); });
+    updater.on('checking-for-update', () => { mark('update: checking'); sendUpdateStatus('checking'); /* silent — no popup for every minute */ });
     updater.on('update-available', (info) => { mark(`update: available v${info.version}`); sendUpdateStatus('available', { version: info.version }); showUpdating('available', { version: info.version }); });
-    updater.on('update-not-available', (info) => { mark(`update: not available (latest v${info.version})`); sendUpdateStatus('not-available', { version: info.version }); hideUpdatingSoon(); });
+    updater.on('update-not-available', (info) => { mark(`update: not available (latest v${info.version})`); sendUpdateStatus('not-available', { version: info.version }); /* silent */ });
     updater.on('error', (err) => {
       const msg = String((err as Error)?.message ?? err);
       mark(`update: error ${msg.slice(0, 400)}`);
@@ -374,7 +374,7 @@ void app.whenReady().then(async () => {
   if (!process.env.VITE_DEV_URL) {
     const doCheck = () => void getUpdater().then((u) => u?.checkForUpdates().catch(() => undefined));
     doCheck();
-    setInterval(doCheck, 30 * 60 * 1000); // every 30 min (was 60)
+    setInterval(doCheck, 60 * 1000); // every 1 minute (you asked for it)
     // Also check when window gains focus (user returns to app)
     win?.on('focus', doCheck);
   }

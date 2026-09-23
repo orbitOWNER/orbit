@@ -82,8 +82,19 @@ export function runMigrations(): void {
     }
   } catch { /* ignore */ }
   try { getDb().exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client ON messages(clientId) WHERE clientId IS NOT NULL'); } catch { /* older sqlite */ }
+  // 0.3.9: installations was per-user (userId PK) — now per-device (deviceId PK) so both PCs show separately.
+  // If the old table exists, drop it (one-time migration; data repopulates on next launch).
+  try {
+    const cols = all<{ name: string }>('PRAGMA table_info(installations)');
+    const hasDevice = cols.some((c) => c.name === 'deviceId');
+    const hasUserPk = cols.some((c) => c.name === 'userId');
+    if (cols.length > 0 && !hasDevice && hasUserPk) {
+      d.exec('DROP TABLE installations');
+    }
+  } catch { /* ignore */ }
   d.exec(`CREATE TABLE IF NOT EXISTS installations (
-    userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    deviceId TEXT PRIMARY KEY,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     username TEXT NOT NULL,
     displayName TEXT NOT NULL,
     appVersion TEXT NOT NULL,
@@ -92,6 +103,7 @@ export function runMigrations(): void {
     lastSeen TEXT NOT NULL,
     createdAt TEXT NOT NULL
   );`);
+  d.exec('CREATE INDEX IF NOT EXISTS idx_installations_user ON installations(userId)');
   persistSoon();
 }
 

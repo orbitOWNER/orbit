@@ -186,12 +186,21 @@ export function App() {
     if (user && !dataReady) bootstrap().catch(() => undefined);
   }, [user, dataReady, bootstrap]);
   // Report this device's install so the owner can see it (owner-only tab).
-  // Fires on every launch and when the user changes — cheap upsert, no PII beyond username.
+  // Per-device (not per-user) so both your PCs show separately. DeviceId is
+  // stable per install (stored in main KV), survives logouts.
   useEffect(() => {
     if (!user) return;
     const plat = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? 'unknown';
-    desktop.getAppVersion().then((v) =>
-      api.reportInstall({ appVersion: v, platform: String(plat).slice(0, 32), arch: String(navigator.userAgent.includes('WOW64') ? 'x64' : 'x64').slice(0, 16) }).catch(() => undefined),
+    const getDeviceId = async () => {
+      let id = (await desktop.kvGet('orbit.deviceId')) as string | null;
+      if (!id || typeof id !== 'string' || id.length < 8) {
+        try { id = crypto.randomUUID(); } catch { id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`; }
+        void desktop.kvSet('orbit.deviceId', id);
+      }
+      return id;
+    };
+    Promise.all([desktop.getAppVersion(), getDeviceId()]).then(([v, did]) =>
+      api.reportInstall({ appVersion: v, platform: String(plat).slice(0, 32), arch: String(navigator.userAgent.includes('WOW64') ? 'x64' : 'x64').slice(0, 16), deviceId: did }).catch(() => undefined),
     ).catch(() => undefined);
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { applySettingsToDom(settings); }, [settings]);

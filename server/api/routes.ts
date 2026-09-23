@@ -714,24 +714,25 @@ export function mountApi(app: Express) {
     return row?.username === 'sansOWNER';
   }
   app.post('/api/installs/report', authMiddleware, (req: Authed, res) => {
-    const { appVersion, platform, arch } = (req.body ?? {}) as { appVersion?: string; platform?: string; arch?: string };
+    const { appVersion, platform, arch, deviceId } = (req.body ?? {}) as { appVersion?: string; platform?: string; arch?: string; deviceId?: string };
     const user = get<{ username: string; displayName: string }>('SELECT username, displayName FROM users WHERE id = ?', [req.userId!]);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
     const now = iso();
     const ver = String(appVersion ?? 'unknown').slice(0, 32);
     const plat = String(platform ?? 'unknown').slice(0, 32);
     const arc = String(arch ?? 'unknown').slice(0, 32);
-    const existing = get<{ createdAt: string }>('SELECT createdAt FROM installations WHERE userId = ?', [req.userId!]);
+    const did = String(deviceId ?? req.userId!).slice(0, 64);
+    const existing = get<{ createdAt: string }>('SELECT createdAt FROM installations WHERE deviceId = ?', [did]);
     if (existing) {
-      run('UPDATE installations SET username = ?, displayName = ?, appVersion = ?, platform = ?, arch = ?, lastSeen = ? WHERE userId = ?', [user.username, user.displayName, ver, plat, arc, now, req.userId!]);
+      run('UPDATE installations SET userId = ?, username = ?, displayName = ?, appVersion = ?, platform = ?, arch = ?, lastSeen = ? WHERE deviceId = ?', [req.userId!, user.username, user.displayName, ver, plat, arc, now, did]);
     } else {
-      run('INSERT INTO installations (userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt) VALUES (?,?,?,?,?,?,?,?)', [req.userId!, user.username, user.displayName, ver, plat, arc, now, now]);
+      run('INSERT INTO installations (deviceId, userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt) VALUES (?,?,?,?,?,?,?,?,?)', [did, req.userId!, user.username, user.displayName, ver, plat, arc, now, now]);
     }
     res.json({ ok: true });
   });
   app.get('/api/installs', authMiddleware, (req: Authed, res) => {
     if (!isOwner(req.userId!)) { res.status(403).json({ error: 'Owner only' }); return; }
-    const rows = all('SELECT userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt FROM installations ORDER BY lastSeen DESC');
+    const rows = all('SELECT deviceId, userId, username, displayName, appVersion, platform, arch, lastSeen, createdAt FROM installations ORDER BY lastSeen DESC');
     res.json({ installs: rows });
   });
 

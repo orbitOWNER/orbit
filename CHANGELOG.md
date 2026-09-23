@@ -2,6 +2,14 @@
 
 All notable changes to Orbit are documented here.
 
+## [0.3.9] — 2026-09-23 — Silent 1-min Updater + Per-Device Installs
+### Changed
+- Updater now checks **every 1 minute** (was 30) and is **silent** on “Checking…” — only pops the “Updating Orbit” window when an update is actually found/downloading/ready.
+- Installs are now **per-device** (deviceId), not per-user — so both your PCs show as separate rows, and your friend’s PC shows separately too.
+
+### Fixed
+- Second PC now appears in Installs — previously same user on two PCs overwrote one row.
+
 ## [0.3.8] — 2026-09-23 — Ping + Visible Updater
 ### Added
 - **Updating Orbit window** — a centered, always-on-top mini-window that appears the moment an update is found, shows live progress (“Checking…”, “Downloading v0.3.8 — 42%”, “Ready — Restart now”), and auto-closes after install.

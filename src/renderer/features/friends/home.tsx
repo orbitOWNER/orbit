@@ -42,7 +42,7 @@ function InstallsPane() {
 }
 
 function InstallsMain() {
-  const [rows, setRows] = useState<null | { userId: string; username: string; displayName: string; appVersion: string; platform: string; arch: string; lastSeen: string }[]>(null);
+  const [rows, setRows] = useState<null | { deviceId: string; userId: string; username: string; displayName: string; appVersion: string; platform: string; arch: string; lastSeen: string }[]>(null);
   const [err, setErr] = useState<string | null>(null);
   const refresh = () => {
     setErr(null);
@@ -51,17 +51,18 @@ function InstallsMain() {
   useEffect(() => { refresh(); }, []);
   if (err) return <div className="friends-main"><div className="form-error" role="alert">{err}</div><button className="btn sm" onClick={refresh}>Retry</button></div>;
   if (!rows) return <div className="friends-main"><p className="muted">Loading installs…</p></div>;
+  // Group by user to show you have 2 accounts, but per-device rows so both PCs appear separately
   return (
     <div className="friends-main">
       <h2>Installs 👑 <small className="muted">owner only</small></h2>
-      <p className="muted small">Every PC that has reported — updates when someone opens Orbit. You have 2 accounts; other users never see this tab.</p>
+      <p className="muted small">Every PC that has reported — one row per device. Your friend on 0.3.7 and both your PCs will each appear. Updates every minute in background.</p>
       {rows.length === 0 && <p className="muted">No installs yet — open the app on another PC and it will appear.</p>}
       {rows.map((r) => (
-        <div key={r.userId} className="friend-row">
+        <div key={r.deviceId} className="friend-row">
           <Avatar name={r.displayName} size={36} />
-          <div><b>{r.displayName}</b> <span className="muted">@{r.username} • v{r.appVersion} • {r.platform} {r.arch}</span><br /><small className="muted">last seen {new Date(r.lastSeen).toLocaleString()}</small></div>
+          <div><b>{r.displayName}</b> <span className="muted">@{r.username} • v{r.appVersion} • {r.platform} {r.arch}</span><br /><small className="muted">last seen {new Date(r.lastSeen).toLocaleString()} • {r.deviceId.slice(0, 8)}</small></div>
           <span className="spacer" />
-          <span className="muted small">{r.username === 'sansOWNER' || r.username === 'sansOWNER2' ? 'you' : ''}</span>
+          <span className="muted small">{r.username === 'sansOWNER' || r.username === 'sansOWNER2' ? 'you' : 'friend'}</span>
         </div>
       ))}
       <button className="btn ghost sm" onClick={refresh}>Refresh</button>

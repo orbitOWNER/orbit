@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS channel_read_state (
   PRIMARY KEY (userId, channelId)
 );
 CREATE TABLE IF NOT EXISTS installations (
-  userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  deviceId TEXT PRIMARY KEY,
+  userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   username TEXT NOT NULL,
   displayName TEXT NOT NULL,
   appVersion TEXT NOT NULL,
@@ -81,4 +82,5 @@ CREATE TABLE IF NOT EXISTS installations (
   lastSeen TEXT NOT NULL,
   createdAt TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_installations_user ON installations(userId);
 `;
