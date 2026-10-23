@@ -15,7 +15,7 @@ Original community-chat desktop app: **Electron + React + TypeScript + Vite**, l
 - **Search**: global messages/users/channels, jump-to-message highlight, recent searches, `Ctrl+Shift+F`.
 - **Notifications**: unread counts, mention badges, desktop notifications (Electron + Web fallback), per-channel/server mute, DND.
 - **Reliability**: unread markers persisted in SQLite (survive restarts), offline message queue persisted across restarts, idempotent sends (retries never double-post, even past the anti-spam filter).
-- **User settings** (10 tabs): account (display name, username, email, avatar upload, password change, delete account), profile (status, bio), appearance (dark/light, accent, cozy/compact, font scale), accessibility (reduce motion, focus states, ARIA), notifications, voice&video, keybinds, privacy, security, language.
+- **User settings** (10 tabs): account (display name, username, email, avatar upload, password change, delete account), profile (status, bio), appearance (dark/light, accent, cozy/compact, font scale), accessibility (reduce motion, focus states, ARIA), notifications, voice&video, keybinds, privacy (DM/friend-request permissions, blocked list), security (sessions/devices, revoke, logout-others), language.
 - **Server settings**: overview, roles (create + permissions), channels, members (roles, timeout, kick, ban), invites info, moderation notes, audit log — all permission-gated.
 - **Moderation**: kick/ban/timeout/delete/report/audit + server-side rate-limit + duplicate anti-spam.
 - **Invites**: expiring/max-use codes, `orbit://code` deep links (Electron + in-app join), invalid/expired screens.

@@ -1,13 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { all, get, run } from '../database/db.js';
-import { channelSchema, hashPassword, loginSchema, messageSchema, passwordChangeSchema, profilePatchSchema, registerSchema, serverSchema, verifyPassword, signToken, verifyToken } from '../services/auth.js';
+import { channelSchema, hashPassword, loginSchema, messageSchema, passwordChangeSchema, profilePatchSchema, registerSchema, serverSchema, verifyPassword, signToken, verifyToken, verifyTokenFull } from '../services/auth.js';
 import { isMember, memberPermissions, requirePerm } from '../services/permissions.js';
 import { checkSpam } from '../services/spam.js';
 import { broadcast, getVoiceStates, setVoiceState } from '../websocket/hub.js';
 import { ALLOWED_UPLOAD_MIME, BLOCKED_EXTENSIONS, MAX_UPLOAD_MB } from '../../src/shared/constants/app.js';
 
-export interface Authed extends Request { userId?: string }
+export interface Authed extends Request { userId?: string; jti?: string }
+
+function deviceLabelOf(req: Request): string {
+  return String(req.get('User-Agent') ?? 'Unknown device').slice(0, 128);
+}
+
+// Throttled last-seen writes (at most one per jti per minute).
+const seenAt = new Map<string, number>();
+function touchSession(jti: string): void {
+  const now = Date.now();
+  if (now - (seenAt.get(jti) ?? 0) < 60_000) return;
+  seenAt.set(jti, now);
+  try { run('UPDATE sessions SET lastSeenAt = ? WHERE jti = ?', [new Date(now).toISOString(), jti]); } catch { /* ignore */ }
+}
 
 function iso() { return new Date().toISOString(); }
 function inviteCode(): string {
@@ -38,14 +51,32 @@ export function authMiddleware(req: Authed, res: Response, next: NextFunction) {
   const h = req.headers.authorization ?? '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
   if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
-  const sub = verifyToken(token);
-  if (!sub) { res.status(401).json({ error: 'Invalid token' }); return; }
-  req.userId = sub;
+  const claims = verifyTokenFull(token);
+  if (!claims) { res.status(401).json({ error: 'Invalid token' }); return; }
+  req.userId = claims.sub;
+  req.jti = claims.jti;
+  if (claims.jti) {
+    // Revocable sessions: jti must map to a live (non-revoked) session row.
+    // Tokens minted before sessions existed carry no jti and stay valid till expiry.
+    const sess = get<{ revokedAt: string | null }>('SELECT revokedAt FROM sessions WHERE jti = ?', [claims.jti]);
+    if (!sess || sess.revokedAt) { res.status(401).json({ error: 'Session revoked' }); return; }
+    touchSession(claims.jti);
+  }
   next();
 }
 
+function createSession(userId: string, req: Request): string {
+  const jti = randomUUID();
+  const now = iso();
+  try {
+    run('INSERT INTO sessions (id, userId, jti, deviceLabel, createdAt, lastSeenAt, revokedAt) VALUES (?,?,?,?,?,?,?)',
+      [randomUUID(), userId, jti, deviceLabelOf(req), now, now, null]);
+  } catch { /* best-effort; token still usable, just not revocable */ }
+  return jti;
+}
+
 function publicUser(r: Record<string, unknown>) {
-  return { id: r.id, username: r.username, displayName: r.displayName, avatar: r.avatar ?? null, status: r.status ?? 'offline', customStatus: r.customStatus ?? null, bio: (r.bio as string | null) ?? null, createdAt: r.createdAt };
+  return { id: r.id, username: r.username, displayName: r.displayName, avatar: r.avatar ?? null, status: r.status ?? 'offline', customStatus: r.customStatus ?? null, bio: (r.bio as string | null) ?? null, dmPermission: (r.dm_permission as string) ?? 'everyone', friendRequestPermission: (r.friend_request_permission as string) ?? 'everyone', createdAt: r.createdAt };
 }
 
 export function mountApi(app: Express) {
@@ -63,7 +94,7 @@ export function mountApi(app: Express) {
     const hash = await hashPassword(password);
     run('INSERT INTO users (id, username, displayName, email, passwordHash, avatar, status, customStatus, createdAt) VALUES (?,?,?,?,?,?,?,?,?)',
       [id, username, displayName, email, hash, '🪐', 'online', null, iso()]);
-    const token = signToken(id);
+    const token = signToken(id, createSession(id, req));
     const row = get<Record<string, unknown>>('SELECT * FROM users WHERE id = ?', [id]);
     res.status(201).json({ token, user: { ...publicUser(row!), email } });
   });
@@ -77,7 +108,7 @@ export function mountApi(app: Express) {
     }
     run('UPDATE users SET status = ? WHERE id = ?', ['online', row.id]);
     broadcast('PRESENCE_UPDATE', { userId: row.id, status: 'online' });
-    const token = signToken(String(row.id));
+    const token = signToken(String(row.id), createSession(String(row.id), req));
     res.json({ token, user: { ...publicUser(row), email: row.email } });
   });
 
@@ -107,6 +138,8 @@ export function mountApi(app: Express) {
     if (b.bio !== undefined) { sets.push('bio = ?'); vals.push(b.bio); }
     if (b.status !== undefined) { sets.push('status = ?'); vals.push(b.status); }
     if (b.avatar !== undefined) { sets.push('avatar = ?'); vals.push(b.avatar); }
+    if (b.dmPermission !== undefined) { sets.push('dm_permission = ?'); vals.push(b.dmPermission); }
+    if (b.friendRequestPermission !== undefined) { sets.push('friend_request_permission = ?'); vals.push(b.friendRequestPermission); }
     if (sets.length) run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, [...vals, req.userId!]);
     if (b.status) broadcast('PRESENCE_UPDATE', { userId: req.userId!, status: b.status });
     const row = get<Record<string, unknown>>('SELECT * FROM users WHERE id = ?', [req.userId!]);
@@ -142,9 +175,44 @@ export function mountApi(app: Express) {
     run('DELETE FROM invites WHERE creatorId = ?', [uid]);
     run('DELETE FROM channel_read_state WHERE userId = ?', [uid]);
     run('DELETE FROM bans WHERE userId = ?', [uid]);
+    run('DELETE FROM sessions WHERE userId = ?', [uid]);
     run('DELETE FROM users WHERE id = ?', [uid]);
     setVoiceState(uid, { channelId: null, serverId: null, muted: false, deafened: false, speaking: false, video: false, sharing: false });
     for (const sid of serverIds) broadcast('MEMBER_LEAVE', { serverId: sid, userId: uid });
+    res.json({ ok: true });
+  });
+
+  // ---- sessions (revocable logins) ----
+  app.get('/api/auth/sessions', authMiddleware, (req: Authed, res) => {
+    const rows = all<Record<string, unknown>>('SELECT id, jti, deviceLabel, createdAt, lastSeenAt FROM sessions WHERE userId = ? AND revokedAt IS NULL ORDER BY lastSeenAt DESC', [req.userId!]);
+    res.json({
+      sessions: rows.map(({ jti, ...r }) => ({ ...r, isCurrent: jti === req.jti })),
+    });
+  });
+  app.delete('/api/auth/sessions/:id', authMiddleware, (req: Authed, res) => {
+    const row = get<{ userId: string }>('SELECT userId FROM sessions WHERE id = ?', [req.params.id]);
+    if (!row || row.userId !== req.userId) { res.status(404).json({ error: 'Session not found' }); return; }
+    run('UPDATE sessions SET revokedAt = ? WHERE id = ?', [iso(), req.params.id]);
+    res.json({ ok: true });
+  });
+  app.post('/api/auth/sessions/logout-others', authMiddleware, (req: Authed, res) => {
+    if (!req.jti) { res.status(400).json({ error: 'Relogin required for this action' }); return; }
+    const r = run('UPDATE sessions SET revokedAt = ? WHERE userId = ? AND jti != ? AND revokedAt IS NULL', [iso(), req.userId!, req.jti]);
+    res.json({ ok: true, revokedCount: r.changes });
+  });
+
+  // ---- blocks (block list lives in friendships with status='blocked') ----
+  app.get('/api/auth/blocks', authMiddleware, (req: Authed, res) => {
+    const rows = all<Record<string, unknown>>(
+      `SELECT f.friendId AS userId, u.username, u.displayName, u.avatar, u.status, f.createdAt AS blockedAt
+       FROM friendships f JOIN users u ON u.id = f.friendId
+       WHERE f.userId = ? AND f.status = 'blocked' ORDER BY f.createdAt DESC`, [req.userId!]);
+    res.json({ blocked: rows });
+  });
+  app.delete('/api/auth/blocks/:userId', authMiddleware, (req: Authed, res) => {
+    run('DELETE FROM friendships WHERE userId = ? AND friendId = ? AND status = ?', [req.userId!, req.params.userId, 'blocked']);
+    broadcast('FRIEND_UPDATE', { userId: req.params.userId });
+    broadcast('FRIEND_UPDATE', { userId: req.userId });
     res.json({ ok: true });
   });
 
@@ -581,12 +649,13 @@ export function mountApi(app: Express) {
   app.post('/api/friends/request', authMiddleware, (req: Authed, res) => {
     const raw = String((req.body as { username?: string })?.username ?? '').trim();
     if (!raw) { res.status(400).json({ error: 'Username required' }); return; }
-    const target = get<{ id: string }>('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [raw]);
+    const target = get<{ id: string; friend_request_permission: string }>('SELECT id, friend_request_permission FROM users WHERE username = ? COLLATE NOCASE', [raw]);
     if (!target) { res.status(404).json({ error: 'User not found' }); return; }
     if (target.id === req.userId) { res.status(400).json({ error: 'Cannot friend yourself' }); return; }
     // Blocked in either direction => silent 404-style to avoid probing
     const blocked = get('SELECT id FROM friendships WHERE ((userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)) AND status = ?', [req.userId!, target.id, target.id, req.userId!, 'blocked']);
     if (blocked) { res.status(403).json({ error: 'Cannot send request to this user' }); return; }
+    if (target.friend_request_permission === 'nobody') { res.status(403).json({ error: 'This user is not accepting friend requests' }); return; }
     const alreadyFriends = get('SELECT id FROM friendships WHERE ((userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)) AND status = ?', [req.userId!, target.id, target.id, req.userId!, 'accepted']);
     if (alreadyFriends) { res.status(409).json({ error: 'Already friends' }); return; }
     const samePending = get('SELECT id FROM friendships WHERE userId = ? AND friendId = ? AND status = ?', [req.userId!, target.id, 'pending']);
@@ -666,6 +735,19 @@ export function mountApi(app: Express) {
             return;
           }
         } catch { /* ignore */ }
+      }
+    }
+    // Privacy + block gates apply only to genuinely NEW conversations.
+    for (const other of ids) {
+      if (other === req.userId) continue;
+      const u = get<{ dm_permission: string }>('SELECT dm_permission FROM users WHERE id = ?', [other]);
+      if (!u) { res.status(404).json({ error: 'User not found' }); return; }
+      const blocked = get('SELECT id FROM friendships WHERE ((userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)) AND status = ?', [req.userId!, other, other, req.userId!, 'blocked']);
+      if (blocked) { res.status(403).json({ error: 'Cannot message this user' }); return; }
+      if (u.dm_permission === 'nobody') { res.status(403).json({ error: 'This user is not accepting direct messages' }); return; }
+      if (u.dm_permission === 'friends') {
+        const fr = get('SELECT id FROM friendships WHERE ((userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)) AND status = ?', [req.userId!, other, other, req.userId!, 'accepted']);
+        if (!fr) { res.status(403).json({ error: 'You must be friends to message this user' }); return; }
       }
     }
     const id = randomUUID();

@@ -104,6 +104,26 @@ export function runMigrations(): void {
     createdAt TEXT NOT NULL
   );`);
   d.exec('CREATE INDEX IF NOT EXISTS idx_installations_user ON installations(userId)');
+  d.exec(`CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    jti TEXT UNIQUE NOT NULL,
+    deviceLabel TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    lastSeenAt TEXT NOT NULL,
+    revokedAt TEXT
+  );`);
+  d.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(userId)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(jti)');
+  try {
+    const uinfo = all<{ name: string }>('PRAGMA table_info(users)');
+    if (!uinfo.some((c) => c.name === 'dm_permission')) {
+      getDb().exec(`ALTER TABLE users ADD COLUMN dm_permission TEXT NOT NULL DEFAULT 'everyone'`);
+    }
+    if (!uinfo.some((c) => c.name === 'friend_request_permission')) {
+      getDb().exec(`ALTER TABLE users ADD COLUMN friend_request_permission TEXT NOT NULL DEFAULT 'everyone'`);
+    }
+  } catch { /* ignore */ }
   persistSoon();
 }
 

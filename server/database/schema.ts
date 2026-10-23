@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, displayName TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL, passwordHash TEXT NOT NULL,
   avatar TEXT, status TEXT DEFAULT 'online', customStatus TEXT, bio TEXT,
+  dm_permission TEXT NOT NULL DEFAULT 'everyone',
+  friend_request_permission TEXT NOT NULL DEFAULT 'everyone',
   createdAt TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS servers (
@@ -83,4 +85,15 @@ CREATE TABLE IF NOT EXISTS installations (
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_installations_user ON installations(userId);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  jti TEXT UNIQUE NOT NULL,
+  deviceLabel TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  lastSeenAt TEXT NOT NULL,
+  revokedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(userId);
+CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(jti);
 `;

@@ -2,6 +2,14 @@
 
 All notable changes to Orbit are documented here.
 
+## [0.4.0] — 2026-09-23 — Identity: Sessions, Privacy, Blocks
+### Added
+- **Sessions/devices** (Security tab): every login mints a revocable JWT (`jti`); list devices, revoke one, log out all others. Revoked tokens 401 instantly; any stray 401 auto-signs-out to login.
+- **Privacy controls**: who can DM you (everyone/friends/nobody) and who can send friend requests (everyone/nobody), enforced server-side at creation time.
+- **Blocked list UI** with silent unblock.
+### Fixed
+- Blocked users could still open DMs — now 403 both directions.
+
 ## [0.3.10] — 2026-09-23 — Restart Fix
 ### Fixed
 - “Restart now” in the *Updating Orbit* popup now correctly closes the popup — use the main window’s banner *Restart now* (which always worked) to restart. The popup was trying to call a blocked API.

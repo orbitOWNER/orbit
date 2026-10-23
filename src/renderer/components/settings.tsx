@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PERMISSIONS_ALL } from '@shared/constants/app';
-import { api } from '../lib/api';
+import { api, type BlockedUserShape, type SessionShape } from '../lib/api';
 import { useAuth } from '../stores/useAuth';
 import { useData } from '../stores/useData';
 import { useSettings } from '../stores/useSettings';
@@ -214,11 +214,36 @@ export function SettingsModal() {
               <li><kbd>Ctrl/⌘ ⇧ D</kbd> Deafen</li>
             </ul>
           )}
-          {tab === 'Privacy' && <p className="muted">Friend requests require your username. Blocked users cannot DM you. Read receipts are local-only in this build.</p>}
+          {tab === 'Privacy' && (
+            <>
+              <Field label="Who can send you friend requests">
+                <select value={me?.friendRequestPermission ?? 'everyone'} onChange={(e) => {
+                  patchMe({ friendRequestPermission: e.target.value as 'everyone' | 'nobody' })
+                    .then(() => toast('success', 'Privacy saved')).catch(() => toast('error', 'Save failed'));
+                }}>
+                  <option value="everyone">Everyone</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </Field>
+              <Field label="Who can start a DM with you">
+                <select value={me?.dmPermission ?? 'everyone'} onChange={(e) => {
+                  patchMe({ dmPermission: e.target.value as 'everyone' | 'friends' | 'nobody' })
+                    .then(() => toast('success', 'Privacy saved')).catch(() => toast('error', 'Save failed'));
+                }}>
+                  <option value="everyone">Everyone</option>
+                  <option value="friends">Friends only</option>
+                  <option value="nobody">Nobody</option>
+                </select>
+              </Field>
+              <p className="muted small">Only affects new requests — existing friends and DMs keep working. Blocked users can never reach you.</p>
+              <BlockedSection />
+            </>
+          )}
           {tab === 'Security' && (
             <>
               <p className="muted">Passwords are hashed with bcrypt and never stored in plaintext. Tokens are JWTs kept in local storage.</p>
               <button className="btn sm" onClick={() => { logout(); close(); }}>Sign out everywhere (this device)</button>
+              <SessionsSection />
               <UpdateSection />
             </>
           )}
@@ -265,8 +290,83 @@ function UpdateSection() {
   );
 }
 
-function useCan(perm: string): boolean {
-  const activeServerId = useUI((s) => s.activeServerId);
+function SessionsSection() {
+  const toast = useUI((s) => s.toast);
+  const logout = useAuth((s) => s.logout);
+  const [rows, setRows] = useState<SessionShape[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const refresh = () => {
+    setErr(null);
+    api.sessions().then((r) => setRows(r.sessions)).catch((e: Error) => setErr(e.message));
+  };
+  useEffect(() => { refresh(); }, []);
+  const revoke = (id: string, isCurrent: boolean) => {
+    setBusyId(id);
+    api.revokeSession(id)
+      .then(() => {
+        if (isCurrent) { logout(); toast('info', 'This session was revoked'); }
+        else refresh();
+      })
+      .catch((e: Error) => toast('error', e.message))
+      .finally(() => setBusyId(null));
+  };
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h4>Sessions</h4>
+      <p className="muted small">Every login creates a revocable session. Revoking kills that device's access immediately.</p>
+      {err && <div className="form-error" role="alert">{err} <button className="btn ghost sm" onClick={refresh}>Retry</button></div>}
+      {!rows && !err && <p className="muted">Loading sessions…</p>}
+      {rows?.map((s) => (
+        <div key={s.id} className="row">
+          <span>{s.isCurrent ? <b>This device</b> : 'Device'} <small className="muted">{s.deviceLabel.slice(0, 60)} • last seen {new Date(s.lastSeenAt).toLocaleString()}</small></span>
+          <span className="row-actions">
+            <button className="btn ghost sm danger-text" disabled={busyId === s.id} onClick={() => revoke(s.id, s.isCurrent)}>
+              {busyId === s.id ? '…' : 'Revoke'}
+            </button>
+          </span>
+        </div>
+      ))}
+      {rows && rows.length > 1 && (
+        <button className="btn sm" onClick={() => {
+          api.logoutOthers().then((r) => { toast('success', `Revoked ${r.revokedCount} session(s)`); return refresh(); }).catch((e: Error) => toast('error', e.message));
+        }}>Log out all other devices</button>
+      )}
+    </div>
+  );
+}
+
+function BlockedSection() {
+  const toast = useUI((s) => s.toast);
+  const refreshFriends = useData((s) => s.refreshFriends);
+  const [rows, setRows] = useState<BlockedUserShape[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const refresh = () => {
+    setErr(null);
+    api.blockedList().then((r) => setRows(r.blocked)).catch((e: Error) => setErr(e.message));
+  };
+  useEffect(() => { refresh(); }, []);
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h4>Blocked users</h4>
+      {err && <div className="form-error" role="alert">{err} <button className="btn ghost sm" onClick={refresh}>Retry</button></div>}
+      {!rows && !err && <p className="muted">Loading…</p>}
+      {rows?.length === 0 && <p className="muted small">You haven't blocked anyone.</p>}
+      {rows?.map((u) => (
+        <div key={u.userId} className="row">
+          <span><Avatar name={u.displayName} icon={u.avatar} size={24} /> {u.displayName} <small className="muted">@{u.username}</small></span>
+          <span className="row-actions">
+            <button className="btn ghost sm" onClick={() => {
+              api.unblock(u.userId).then(() => { refresh(); void refreshFriends(); }).catch((e: Error) => toast('error', e.message));
+            }}>Unblock</button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function useCan(perm: string): boolean {  const activeServerId = useUI((s) => s.activeServerId);
   const me = useAuth((s) => s.user);
   const members = useData((s) => s.members);
   const roles = useData((s) => s.roles);

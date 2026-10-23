@@ -11,16 +11,21 @@ export async function hashPassword(pw: string): Promise<string> {
 export async function verifyPassword(pw: string, hash: string): Promise<boolean> {
   return bcrypt.compare(pw, hash);
 }
-export function signToken(userId: string): string {
+export function signToken(userId: string, jti?: string): string {
   return (jwt as unknown as { sign: (p: object, s: string, o: object) => string }).sign(
-    { sub: userId }, JWT_SECRET(), { expiresIn: EXPIRES() },
+    jti ? { sub: userId, jti } : { sub: userId }, JWT_SECRET(), { expiresIn: EXPIRES() },
   );
 }
-export function verifyToken(token: string): string | null {
+export interface TokenClaims { sub: string; jti?: string }
+export function verifyTokenFull(token: string): TokenClaims | null {
   try {
-    const v = (jwt as unknown as { verify: (t: string, s: string) => { sub?: string } }).verify(token, JWT_SECRET());
-    return v.sub ?? null;
+    const v = (jwt as unknown as { verify: (t: string, s: string) => { sub?: string; jti?: string } }).verify(token, JWT_SECRET());
+    if (!v.sub) return null;
+    return { sub: v.sub, jti: v.jti };
   } catch { return null; }
+}
+export function verifyToken(token: string): string | null {
+  return verifyTokenFull(token)?.sub ?? null;
 }
 
 export const registerSchema = z.object({
@@ -41,6 +46,8 @@ export const profilePatchSchema = z.object({
   bio: z.string().max(512).nullable().optional(),
   status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']).optional(),
   avatar: z.string().max(700_000).nullable().optional(),
+  dmPermission: z.enum(['everyone', 'friends', 'nobody']).optional(),
+  friendRequestPermission: z.enum(['everyone', 'nobody']).optional(),
 }).refine((v) => v.avatar == null || v.avatar.length <= 8 || v.avatar.startsWith('data:image/'), {
   message: 'Avatar must be an emoji or an uploaded image',
 });

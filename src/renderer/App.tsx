@@ -179,6 +179,16 @@ export function App() {
 
   useEffect(() => { void init(); }, [init]);
   useEffect(() => {
+    // A 401 anywhere means the session died (revoked, deleted, expired):
+    // drop to the login screen instead of a broken half-authed UI.
+    const h = () => {
+      useAuth.getState().logout();
+      useUI.getState().toast('info', 'Signed out — please log in again');
+    };
+    window.addEventListener('orbit:unauthorized', h);
+    return () => window.removeEventListener('orbit:unauthorized', h);
+  }, []);
+  useEffect(() => {
     // Restore the offline outbox, then flush anything still queued.
     useOutbox.getState().load().then(() => useOutbox.getState().flush()).catch(() => undefined);
   }, []);

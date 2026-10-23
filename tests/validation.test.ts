@@ -39,4 +39,10 @@ describe('validation', () => {
     expect(passwordChangeSchema.safeParse({ currentPassword: '', newPassword: 'new-12345' }).success).toBe(false);
     expect(passwordChangeSchema.safeParse({ currentPassword: 'old-12345', newPassword: 'short' }).success).toBe(false);
   });
+  it('validates privacy settings', () => {
+    expect(profilePatchSchema.safeParse({ dmPermission: 'friends' }).success).toBe(true);
+    expect(profilePatchSchema.safeParse({ dmPermission: 'everyone', friendRequestPermission: 'nobody' }).success).toBe(true);
+    expect(profilePatchSchema.safeParse({ dmPermission: 'anyone' }).success).toBe(false);
+    expect(profilePatchSchema.safeParse({ friendRequestPermission: 'friends' }).success).toBe(false);
+  });
 });

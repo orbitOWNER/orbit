@@ -47,6 +47,16 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new OrbitApiError(0, { error: 'Cannot reach Orbit service. Is it running? (npm run server)' });
   }
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401 && typeof window !== 'undefined'
+    && !path.startsWith('/api/auth/login') && !path.startsWith('/api/auth/register')
+    && !path.startsWith('/api/auth/password')
+    && !(init.method === 'DELETE' && path.startsWith('/api/auth/me'))) {
+    // Token dead everywhere (revoked session, deleted account, rotated secret):
+    // tell the app to sign out instead of rotting in a half-authed state.
+    // (Password-confirm endpoints are excluded: their 401 means "wrong
+    // password", not "dead session".)
+    window.dispatchEvent(new CustomEvent('orbit:unauthorized'));
+  }
   if (!res.ok) throw new OrbitApiError(res.status, body);
   return body as T;
 }
@@ -97,6 +107,11 @@ export const api = {
   joinInvite: (code: string) => req<{ server: ServerShape }>(`/api/invites/${code}/join`, { method: 'POST', body: '{}' }),
   friends: () => req<{ friendships: FriendshipShape[] }>('/api/friends'),
   friendRequest: (username: string) => req<{ ok: boolean; autoAccepted?: boolean }>('/api/friends/request', { method: 'POST', body: JSON.stringify({ username }) }),
+  sessions: () => req<{ sessions: SessionShape[] }>('/api/auth/sessions'),
+  revokeSession: (id: string) => req<{ ok: boolean }>(`/api/auth/sessions/${id}`, { method: 'DELETE' }),
+  logoutOthers: () => req<{ ok: boolean; revokedCount: number }>('/api/auth/sessions/logout-others', { method: 'POST', body: '{}' }),
+  blockedList: () => req<{ blocked: BlockedUserShape[] }>('/api/auth/blocks'),
+  unblock: (userId: string) => req<{ ok: boolean }>(`/api/auth/blocks/${userId}`, { method: 'DELETE' }),
   friendAccept: (userId: string) => req<{ ok: boolean }>(`/api/friends/${userId}/accept`, { method: 'POST' }),
   friendBlock: (userId: string) => req<{ ok: boolean }>(`/api/friends/${userId}/block`, { method: 'POST' }),
   friendRemove: (userId: string) => req<{ ok: boolean }>(`/api/friends/${userId}`, { method: 'DELETE' }),
@@ -114,7 +129,7 @@ export const api = {
   getInstalls: () => req<{ installs: InstallShape[] }>('/api/installs'),
 };
 
-export interface UserShape { id: string; username: string; displayName: string; avatar: string | null; status: string; customStatus: string | null; bio: string | null; createdAt: string; }
+export interface UserShape { id: string; username: string; displayName: string; avatar: string | null; status: string; customStatus: string | null; bio: string | null; createdAt: string; dmPermission?: string; friendRequestPermission?: string; }
 export interface AuthUserShape extends UserShape { email: string; }
 export interface ServerShape { id: string; name: string; icon: string | null; ownerId: string; createdAt: string; }
 export interface ChannelShape { id: string; serverId: string | null; name: string; type: string; categoryId: string | null; position: number; topic: string | null; }
@@ -124,6 +139,8 @@ export interface ReactionShape { id: string; messageId: string; userId: string; 
 export interface RoleShape { id: string; serverId: string; name: string; color: string; permissions: string[]; position: number; }
 export interface MemberShape { id: string; serverId: string; userId: string; nickname: string | null; roleIds: string[] | string; joinedAt: string; timedOutUntil?: string | null; username?: string; displayName?: string; avatar?: string | null; status?: string; customStatus?: string | null; }
 export interface FriendshipShape { id: string; userId: string; friendId: string; status: string; createdAt: string; username?: string; displayName?: string; avatar?: string | null; status2?: string; }
+export interface SessionShape { id: string; deviceLabel: string; createdAt: string; lastSeenAt: string; isCurrent: boolean; }
+export interface BlockedUserShape { userId: string; username: string; displayName: string; avatar: string | null; status: string; blockedAt: string; }
 export interface InviteShape { id: string; serverId: string; code: string; creatorId: string; expiresAt: string | null; maxUses: number | null; uses: number; createdAt: string; }
 export interface DMShape { id: string; name: string; memberIds: string | string[]; isGroup: number | boolean; createdAt: string; }
 export interface AuditShape { id: string; serverId: string; actorId: string; action: string; targetId: string | null; detail: string | null; createdAt: string; }
